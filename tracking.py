@@ -23,3 +23,25 @@ class Feature:
         else:
             return False
     
+class FeatureList:
+    def __init__(self, featureList):
+        self.list = featureList
+        self.len = len(featureList)
+    
+    # try to push a feature given some minimum separation
+    # returns true if push is successful, false if rejected
+    def pushToList(self, feature, minDist):
+        for f in self.list:
+            if((feature.pos[1] - f.pos[1])**2 + (feature.pos[2] - f.pos[2])**2 < minDist**2):
+                return False
+            else:
+                self.list.append(feature)
+                self.len += 1
+                return True
+    
+    # update all stored features and pop the untractable ones
+    def updatePopList(self, frame):
+        for f in self.list:
+            if not f.update(frame):
+                self.list.remove(f)
+                self.len -= 1

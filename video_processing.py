@@ -1,13 +1,16 @@
-import cv2 
+from cv2 import cv2 
 import time
 import threading
 from Play_Video_Thread import Play_Video_Thread
+import tracking as ft
+
 
 if __name__ == '__main__':
     vid_path = 'C:/Users/Owen/Desktop/School/ECE_2020_2021/Term 1/ELEC 421/Project/Video Data/drivingfootage.mp4'
-    video = Play_Video_Thread(path=vid_path2).start()
+    video = Play_Video_Thread(path=vid_path).start()
 
-   
+    featureList = ft.FeatureList([])   # List of actively tracked features
+
     fast = cv2.FastFeatureDetector_create(threshold=20, nonmaxSuppression=True)
     time.sleep(.5)
     i = 0
@@ -19,6 +22,8 @@ if __name__ == '__main__':
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         kp = fast.detect(gray, None)
+
+
         frame = cv2.drawKeypoints(gray, kp, None, color = (255,0,0))
         cv2.imshow('frame', frame) 
         
