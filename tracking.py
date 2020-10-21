@@ -2,7 +2,7 @@ from cv2 import cv2
 
 class Feature:
     # Radius of tracking
-    FEATURESIZE = 24
+    FEATURESIZE = 32
     def __init__(self, frame, pos):
         self.pos = pos
         self.lastpos = None
