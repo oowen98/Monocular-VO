@@ -29,28 +29,24 @@ if __name__ == '__main__':
             break
         
         # min feature threshold
-        if (len(kp) <= 0):
+        if (featureList.len <= 10):
             kp = fast.detect(frame, None) #Returns a list of Keypoints
             points = cv2.KeyPoint_convert(kp) #(x,y) cooridinates of the detected corners
 
             # debug code for one feature
-            feature1 = ft.Feature(frame, points[0])
-
-            #frame = cv2.drawKeypoints(frame, kp[0], None, color = (255,0,255)) #Drawing all detected corners on frame
+            for p in points:
+                featureList.pushToList(ft.Feature(frame, p), 16)
         
-        if (len(kp) > 0):
-      
-            track_success = feature1.update(frame)
-            if (track_success): #Successfully tracked feature
-                bbox = feature1.getBBoxI()
+        if (featureList.len > 0):
+            featureList.updatePopList(frame)
+            for f in featureList.list:    
+                bbox = f.getBBoxI()
                 p1 = (bbox[0], bbox[1])
                 p2 = (bbox[2] + bbox[0] , bbox[3] + bbox[1])
+                
                 #Draw the bounding box
                 cv2.rectangle(frame, p1, p2, (255,0,0), 2,1)
-                cv2.circle(frame, tuple(feature1.getPosI()), 7, (255,0,255), -1)
-            else: 
-                cv2.putText(frame, "Tracking failure detected", (100,80), cv2.FONT_HERSHEY_SIMPLEX, 0.75,(0,0,255),2)
-                break
+                cv2.circle(frame, tuple(f.getPosI()), 7, (255,0,255), -1)
 
         
         cv2.imshow('frame', frame) #Display Frame on window
