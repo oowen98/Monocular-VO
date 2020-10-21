@@ -1,11 +1,11 @@
-import cv2
+from cv2 import cv2
 import time
 import numpy as np
 import tracking as ft
 
-vid_path = 'C:/Users/Owen/Desktop/School/ECE_2020_2021/Term 1/ELEC 421/Project/Video Data/drivingfootage.mp4'
-vid_path2 = 'C:/Users/Owen/Desktop/School/ECE_2020_2021/Term 1/ELEC 421/Project/Video Data/minecraft1.gif'
-image = 'C:/Users/Owen/Desktop/School/ECE_2020_2021/Term 1/ELEC 421/Project/Video Data/minecraft.png'
+vid_path = 'videos/drivingfootage.mp4'
+vid_path2 = 'videos/minecraft1.gif'
+image = 'videos/minecraft.png'
 
 def FeatureTracking(prev_frame,current_frame, prev_points, LK_parameters):
 
@@ -21,30 +21,36 @@ if __name__ == '__main__':
    
     featureList = ft.FeatureList([]) #List of actively Tracked Features
     
+    kp = []
     while True:
         success, frame = cap.read()
         frame_counter += 1
         if(success == 0):
             break
+        
+        # min feature threshold
+        if (len(kp) <= 0):
+            kp = fast.detect(frame, None) #Returns a list of Keypoints
+            points = cv2.KeyPoint_convert(kp) #(x,y) cooridinates of the detected corners
 
-        kp = fast.detect(frame, None) #Returns a list of Keypoints
-        points = cv2.KeyPoint_convert(kp) #(x,y) cooridinates of the detected corners
+            # debug code for one feature
+            feature1 = ft.Feature(frame, points[0])
 
-        #frame = cv2.drawKeypoints(frame, kp[0], None, color = (255,0,255)) #Drawing all detected corners on frame
-        cv2.circle(frame, tuple(points[0]), 7, (255,0,255), -1)
-
-        if(len(kp)>0):
-            feature1 = ft.Feature(frame, points[0])        
-    
-        track_success = feature1.update(frame)
-        if (track_success): #Successfully tracked feature
-            bbox = feature1.return_bbox()
-            p1 = (int(bbox[0]), int(bbox[1]))
-            p2 = (int(bbox[2]) , int(bbox[3]))
-            #Draw the bounding boxq
-            cv2.rectangle(frame, p1, p2, (255,0,0), 2,1) 
-        else: 
-            cv2.putText(frame, "Tracking failure detected", (100,80), cv2.FONT_HERSHEY_SIMPLEX, 0.75,(0,0,255),2)
+            #frame = cv2.drawKeypoints(frame, kp[0], None, color = (255,0,255)) #Drawing all detected corners on frame
+        
+        if (len(kp) > 0):
+      
+            track_success = feature1.update(frame)
+            if (track_success): #Successfully tracked feature
+                bbox = feature1.getBBoxI()
+                p1 = (bbox[0], bbox[1])
+                p2 = (bbox[2] + bbox[0] , bbox[3] + bbox[1])
+                #Draw the bounding box
+                cv2.rectangle(frame, p1, p2, (255,0,0), 2,1)
+                cv2.circle(frame, tuple(feature1.getPosI()), 7, (255,0,255), -1)
+            else: 
+                cv2.putText(frame, "Tracking failure detected", (100,80), cv2.FONT_HERSHEY_SIMPLEX, 0.75,(0,0,255),2)
+                break
 
         
         cv2.imshow('frame', frame) #Display Frame on window
