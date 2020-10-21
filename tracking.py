@@ -2,12 +2,13 @@ from cv2 import cv2
 
 class Feature:
     # Radius of tracking
-    FEATURESIZE = 8
+    FEATURESIZE = 16
     def __init__(self, frame, pos):
         self.pos = pos
         self.lastpos = None
         # define a bounding box centered at pos
-        self.featureBB = (pos[0] - self.FEATURESIZE, pos[1] - self.FEATURESIZE, 2*self.FEATURESIZE, 2*self.FEATURESIZE)
+        #self.featureBB = (pos[0] - self.FEATURESIZE, pos[1] - self.FEATURESIZE, 2*self.FEATURESIZE, 2*self.FEATURESIZE)
+        self.featureBB = (pos[0] - self.FEATURESIZE, pos[1] - self.FEATURESIZE, pos[0] + self.FEATURESIZE, pos[1] + self.FEATURESIZE)
         self.tracker = cv2.TrackerCSRT_create()
         self.tracker.init(frame, self.featureBB)
     
@@ -22,6 +23,9 @@ class Feature:
             return True
         else:
             return False
+
+    def return_bbox(self): #Returns bounding box
+        return self.featureBB
     
 class FeatureList:
     def __init__(self, featureList):
