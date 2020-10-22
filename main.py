@@ -16,8 +16,8 @@ def FeatureTracking(prev_frame,current_frame, prev_points, LK_parameters):
 
 if __name__ == '__main__':
 
-    cap = cv2.VideoCapture(vid_path2)
-    fast = cv2.FastFeatureDetector_create(threshold=60, nonmaxSuppression=True, type=2) #Feature Detector
+    cap = cv2.VideoCapture(vid_path)
+    fast = cv2.FastFeatureDetector_create(threshold=100, nonmaxSuppression=True, type=2) #Feature Detector
     frame_counter = 0
    
     featureList = ft.FeatureList([]) #List of actively Tracked Features
@@ -31,13 +31,14 @@ if __name__ == '__main__':
             break
         
         # min feature threshold
-        if (featureList.len <= 10):
+        if (featureList.len <= 20):
             kp = fast.detect(frame, None) #Returns a list of Keypoints
+
             points = cv2.KeyPoint_convert(kp) #(x,y) cooridinates of the detected corners
 
             # debug code for one feature
             for p in points:
-                featureList.pushToList(ft.Feature(frame, p), 32)
+                featureList.pushToList(ft.Feature(frame, p), 10)
         
         if (featureList.len > 0):
             featureList.updatePopList(frame)

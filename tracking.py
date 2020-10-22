@@ -2,7 +2,7 @@ from cv2 import cv2
 
 class Feature:
     # Radius of tracking
-    FEATURESIZE = 32
+    FEATURESIZE = 24
     def __init__(self, frame, pos):
         self.pos = pos
         self.lastpos = None
@@ -10,16 +10,21 @@ class Feature:
         self.featureBB = (pos[0] - self.FEATURESIZE, pos[1] - self.FEATURESIZE, 2*self.FEATURESIZE, 2*self.FEATURESIZE)
         self.tracker = cv2.TrackerMOSSE_create()
         self.tracker.init(frame, self.featureBB)
+        self.stationaryFrames = 0
     
     # updates the position of the feature using a new frame
     # returns true if the feature is still tractable, false if tracking has failed
     # the feature should be popped if this function returns false
     def update(self, frame):
-        self.lastpos = self.pos
+        self.lastpos = tuple(self.pos)
         (succ, bbox) = self.tracker.update(frame)
         if (succ):
             self.pos = (bbox[0] + bbox[2]/2, bbox[1] + bbox[3]/2)
             self.featureBB = bbox
+            if (self.pos == self.lastpos):
+                self.stationaryFrames += 1
+            else:
+                self.stationaryFrames = 0
             return True
         else:
             return False
@@ -28,7 +33,7 @@ class Feature:
         return tuple([int(i) for i in self.featureBB])
     
     def getPosI(self):
-        return (int(self.pos[0]), int(self.pos[1]))
+        return tuple([int(i) for i in self.pos])
     
 class FeatureList:
     def __init__(self, featureList):
@@ -52,4 +57,7 @@ class FeatureList:
         for f in self.list:
             if not f.update(frame):
                 self.list.remove(f)
-                self.len = len(self.list)
+            if f.stationaryFrames > 10:
+                self.list.remove(f)
+            self.len = len(self.list)
+            
