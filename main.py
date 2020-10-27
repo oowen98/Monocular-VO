@@ -6,6 +6,7 @@ import imutils as im
 
 vid_path = 'videos/drivingfootage.mp4'
 vid_path2 = 'videos/minecraft3.gif'
+vid_path3 = 'videos/drivingfootage2.mov'
 image = 'videos/minecraft.png'
 
 def FeatureTracking(prev_frame,current_frame, prev_points, LK_parameters):
@@ -16,7 +17,7 @@ def FeatureTracking(prev_frame,current_frame, prev_points, LK_parameters):
 
 if __name__ == '__main__':
 
-    cap = cv2.VideoCapture(vid_path)
+    cap = cv2.VideoCapture(vid_path3)
     fast = cv2.FastFeatureDetector_create(threshold=100, nonmaxSuppression=True, type=2) #Feature Detector
     frame_counter = 0
    
