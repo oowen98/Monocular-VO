@@ -3,27 +3,44 @@ import time
 import numpy as np
 import tracking as ft
 import imutils as im
+import csv
 
 vid_path = 'videos/drivingfootage.mp4'
 vid_path2 = 'videos/minecraft3.gif'
 vid_path3 = 'videos/drivingfootage2.mov'
 image = 'videos/minecraft.png'
-
+camera_matrix = 'Camera Calibrations/Gopro_Camera_Matrix.csv'
 def FeatureTracking(prev_frame,current_frame, prev_points, LK_parameters):
 
     new_points, status, error = cv2.calcOpticalFlowPyrLK(prev_frame, current_frame, prev_points, None, **LK_parameters)
     return new_points 
 
+def ReadCameraMat(fileName):
+    cameraMatrix = []
+    with open(fileName) as file:
+        reader = csv.reader(file, delimiter=',')
+        count = 0
+        
+        for row in reader:
+            if count != 0:
+                cameraMatrix.append(row)
+            count +=1
+    cameraMatrix = np.array(cameraMatrix, dtype = np.float32)
+
+    return cameraMatrix
 
 if __name__ == '__main__':
 
-    cap = cv2.VideoCapture(vid_path3)
+    cap = cv2.VideoCapture(vid_path) #Change video path for different video
     fast = cv2.FastFeatureDetector_create(threshold=100, nonmaxSuppression=True, type=2) #Feature Detector
     frame_counter = 0
-   
+
     featureList = ft.FeatureList([]) #List of actively Tracked Features
-    
+    cameraMatrix = ReadCameraMat(camera_matrix)
+    #print(cameraMatrix)
     kp = []
+   
+    count = 0
     while True:
         success, frame = cap.read()
         frame = im.resize(frame, width=600)
@@ -36,25 +53,35 @@ if __name__ == '__main__':
             kp = fast.detect(frame, None) #Returns a list of Keypoints
 
             points = cv2.KeyPoint_convert(kp) #(x,y) cooridinates of the detected corners
-
+            #print(points.shape)
             # debug code for one feature
-            for p in points:
+            for p in points: #Push all the features detected from FAST algorithm to the feature list
                 featureList.pushToList(ft.Feature(frame, p), 10)
         
-        if (featureList.len > 0):
-            featureList.updatePopList(frame)
-            for f in featureList.list:    
-                bbox = f.getBBoxI()
-                p1 = (bbox[0], bbox[1])
-                p2 = (bbox[2] + bbox[0] , bbox[3] + bbox[1])
-                
-                #Draw the bounding box
-                cv2.rectangle(frame, p1, p2, (255,0,0), 2,1)
-                cv2.circle(frame, tuple(f.getPosI()), 7, (255,0,255), -1)
+        if count != 0: #Update feature list after the first frame
+            if (featureList.len > 0):
+                featureList.updatePopList(frame)
+                for f in featureList.list:    
+                    bbox = f.getBBoxI()
+                    p1 = (bbox[0], bbox[1])
+                    p2 = (bbox[2] + bbox[0] , bbox[3] + bbox[1])
+                    
+                    #Draw the bounding box
+                    cv2.rectangle(frame, p1, p2, (255,0,0), 2,1)
+                    cv2.circle(frame, tuple(f.getPosI()), 7, (255,0,255), -1)
 
-        
         cv2.imshow('frame', frame) #Display Frame on window
+
+        #Converting lists of previous and current points to np.array
+        prev_points = np.array(featureList.previous_points, dtype=np.float32)
+        cur_points = np.array(featureList.current_points, dtype=np.float32)
         
+        #Calculate the Essential Matrix        
+        if count != 0:
+            EssentialMatrix, mask = cv2.findEssentialMat(prev_points, cur_points, cameraMatrix, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+            print(EssentialMatrix)
+       
+        count += 1
         #Close program when key 'q' is pressed
         if cv2.waitKey(30) & 0xFF == ord('q'):
             break
