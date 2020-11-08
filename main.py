@@ -6,10 +6,11 @@ import imutils as im
 import csv
 
 vid_path = 'videos/drivingfootage.mp4'
-vid_path2 = 'videos/minecraft3.gif'
+vid_path2 = 'videos/minecraft1.gif'
 vid_path3 = 'videos/drivingfootage2.mov'
 image = 'videos/minecraft.png'
-camera_matrix = 'Camera Calibrations/Gopro_Camera_Matrix.csv'
+camera_matrix_gopro = 'Camera Calibrations/Gopro_Camera_Matrix.csv'
+camera_matrix_minecraft = 'Camera Calibrations/Minecraft_Camera_Matrix.csv'
 def FeatureTracking(prev_frame,current_frame, prev_points, LK_parameters):
 
     new_points, status, error = cv2.calcOpticalFlowPyrLK(prev_frame, current_frame, prev_points, None, **LK_parameters)
@@ -31,15 +32,15 @@ def ReadCameraMat(fileName):
 
 if __name__ == '__main__':
 
-    cap = cv2.VideoCapture(vid_path) #Change video path for different video
+    cap = cv2.VideoCapture(vid_path2) #Change video path for different video
     fast = cv2.FastFeatureDetector_create(threshold=100, nonmaxSuppression=True, type=2) #Feature Detector
     frame_counter = 0
 
     featureList = ft.FeatureList([]) #List of actively Tracked Features
-    cameraMatrix = ReadCameraMat(camera_matrix)
+    cameraMatrix = ReadCameraMat(camera_matrix_minecraft)
     #print(cameraMatrix)
     kp = []
-   
+    trans_sum = np.zeros((3,1), dtype=np.float32)
     count = 0
     while True:
         success, frame = cap.read()
@@ -47,7 +48,7 @@ if __name__ == '__main__':
         frame_counter += 1
         if(success == 0):
             break
-        
+
         # min feature threshold
         if (featureList.len <= 20):
             kp = fast.detect(frame, None) #Returns a list of Keypoints
@@ -70,18 +71,24 @@ if __name__ == '__main__':
                     cv2.rectangle(frame, p1, p2, (255,0,0), 2,1)
                     cv2.circle(frame, tuple(f.getPosI()), 7, (255,0,255), -1)
 
-        cv2.imshow('frame', frame) #Display Frame on window
-
-        #Converting lists of previous and current points to np.array
-        prev_points = np.array(featureList.previous_points, dtype=np.float32)
-        cur_points = np.array(featureList.current_points, dtype=np.float32)
-        
-        #Calculate the Essential Matrix        
-        if count != 0:
+            #Converting lists of previous and current points to np.array
+            prev_points = np.array(featureList.previous_points, dtype=np.float32)
+            cur_points = np.array(featureList.current_points, dtype=np.float32)
+    
+            #Calculate the Essential Matrix from the prev, current points and the Camera Matrix from calibration using the RANSAC method        
             EssentialMatrix, mask = cv2.findEssentialMat(prev_points, cur_points, cameraMatrix, method=cv2.RANSAC, prob=0.999, threshold=1.0)
-            print(EssentialMatrix)
+            #print(EssentialMatrix)
+
+            #Get the Rotation Matrix and Translation vector from the essential matrix
+            retval, Rot_mat, trans_vec, mask = cv2.recoverPose(EssentialMatrix, prev_points, cur_points, cameraMatrix)
+            print('Rot Matrix: ', Rot_mat)
+            #print('trans vec: ', trans_vec)
+            trans_sum += trans_vec
+            #print(trans_sum)
+            
+        
+        cv2.imshow('frame', frame) #Display Frame on window  
        
-        count += 1
         #Close program when key 'q' is pressed
         if cv2.waitKey(30) & 0xFF == ord('q'):
             break
@@ -91,6 +98,8 @@ if __name__ == '__main__':
             #print('Frames: ', i)
             frame_counter = 0
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        
+        count += 1
 
 cap.release()
 cv2.destroyAllWindows()

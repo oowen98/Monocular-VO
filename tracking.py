@@ -68,7 +68,7 @@ class FeatureList:
                 del self.previous_points[index]
                 self.list.remove(f)
 
-            if f.stationaryFrames > 10:
+            if f.stationaryFrames > 0:
                 del self.current_points[index]
                 del self.previous_points[index]
                 self.list.remove(f)
