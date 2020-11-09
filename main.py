@@ -6,7 +6,7 @@ import imutils as im
 import csv
 
 vid_path = 'videos/drivingfootage.mp4'
-vid_path2 = 'videos/minecraft_left.gif'
+vid_path2 = 'videos/minecraft_rev.gif'
 vid_path3 = 'videos/drivingfootage2.mov'
 image = 'videos/minecraft.png'
 camera_matrix_gopro = 'Camera Calibrations/Gopro_Camera_Matrix.csv'
@@ -53,7 +53,7 @@ if __name__ == '__main__':
             break
 
         # min feature threshold
-        if (len(featureList.getActiveFeatures()) <= 10):
+        if (len(featureList.getActiveFeatures()) <= 15):
             kp = fast.detect(frame, None) #Returns a list of Keypoints
 
             points = cv2.KeyPoint_convert(kp) #(x,y) cooridinates of the detected corners
@@ -71,7 +71,10 @@ if __name__ == '__main__':
                 p2 = (bbox[2] + bbox[0] , bbox[3] + bbox[1])
                 
                 #Draw the bounding box
-                cv2.rectangle(frame, p1, p2, (255,0,0), 2,1)
+                if f.isActive:
+                    cv2.rectangle(frame, p1, p2, (0,0,255), 2,1)
+                else:
+                    cv2.rectangle(frame, p1, p2, (255,0,0), 2,1)
                 cv2.circle(frame, tuple(f.getPosI()), 7, (255,0,255), -1)
 
             prev_points = []
@@ -80,6 +83,7 @@ if __name__ == '__main__':
                 prev_points.append(f.lastpos)
                 curr_points.append(f.pos)
 
+            # only try to reproject if we have more than 5 active features
             if (len(curr_points) > 5):
                 prev_pts_norm = cv2.undistortPoints(np.expand_dims(prev_points, axis=1), cameraMatrix=cameraMatrix, distCoeffs=None)
                 curr_pts_norm = cv2.undistortPoints(np.expand_dims(curr_points, axis=1), cameraMatrix=cameraMatrix, distCoeffs=None)

@@ -6,6 +6,7 @@ class Feature:
     def __init__(self, frame, pos):
         self.pos = pos
         self.lastpos = None
+        self.isActive = True
         # define a bounding box centered at pos
         self.featureBB = (pos[0] - self.FEATURESIZE, pos[1] - self.FEATURESIZE, 2*self.FEATURESIZE, 2*self.FEATURESIZE)
         self.tracker = cv2.TrackerMOSSE_create()
@@ -23,10 +24,18 @@ class Feature:
             self.pos = (bbox[0] + bbox[2]/2, bbox[1] + bbox[3]/2)
             self.featureBB = bbox
             
-            if max(np.abs(np.subtract(self.pos, self.lastpos))) < 1.0:
+            # if the feature has moved less than 0.5 px, mark it as stationary
+            if max(np.abs(np.subtract(self.pos, self.lastpos))) < 0.5:
                 self.stationaryFrames += 1
             else:
                 self.stationaryFrames = 0
+
+            # if the feature has moved more than n px, mark it as active
+            if max(np.abs(np.subtract(self.pos, self.lastpos))) > 1.0:
+                self.isActive = True
+            else:
+                self.isActive = False
+
             return True
         else:
             return False
@@ -67,7 +76,8 @@ class FeatureList:
         filteredList = []
         for f in self.list:
             if f.lastpos is not None:
-                if max(np.abs(np.subtract(f.pos, f.lastpos))) > 2.0:
+                # if the feature has moved more than 3 pixels, use it to reproject
+                if f.isActive:
                     filteredList.append(f)
         return filteredList
          
