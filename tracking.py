@@ -5,7 +5,7 @@ class Feature:
     FEATURESIZE = 24
     def __init__(self, frame, pos):
         self.pos = pos
-        self.lastpos = (None,None)
+        self.lastpos = None
         # define a bounding box centered at pos
         self.featureBB = (pos[0] - self.FEATURESIZE, pos[1] - self.FEATURESIZE, 2*self.FEATURESIZE, 2*self.FEATURESIZE)
         self.tracker = cv2.TrackerMOSSE_create()
@@ -23,7 +23,7 @@ class Feature:
             self.pos = (bbox[0] + bbox[2]/2, bbox[1] + bbox[3]/2)
             self.featureBB = bbox
             
-            if (self.pos == self.lastpos):
+            if max(np.abs(np.subtract(self.pos, self.lastpos))) < 1.0:
                 self.stationaryFrames += 1
             else:
                 self.stationaryFrames = 0
@@ -41,8 +41,6 @@ class FeatureList:
     def __init__(self, featureList):
         self.list = featureList
         self.len = len(featureList)
-        self.current_points = []
-        self.previous_points = []
     
     # try to push a feature given some minimum separation
     # returns true if push is successful, false if rejected
@@ -51,27 +49,25 @@ class FeatureList:
             for f in self.list: #If current feature is within distance of a feature already in the list, don't append it to the list
                 if((feature.pos[0] - f.pos[0])**2 + (feature.pos[1] - f.pos[1])**2 < minDist**2):
                     return False
-
         self.list.append(feature) #otherwise append the feature to the list
-        self.current_points.append(tuple(feature.pos)) #Creating list containing all the coordinates of the tracked points in current frame
-        self.previous_points.append(tuple(feature.lastpos)) #Creating list containing all the coordinates of the tracked points in previous frame
         self.len = len(self.list)
         return True
     
     # update all stored features and pop the untractable ones
     def updatePopList(self, frame):
-        for index, f in enumerate(self.list):
-            ret = f.update(frame)
-            self.previous_points[index] = tuple(f.lastpos) #Updating the coordinates from the previous frame
-            if ret == False:
-                del self.current_points[index] #Delete coordinates if it is no longer tracked
-                del self.previous_points[index]
+        for f in self.list:
+            if not f.update(frame):
                 self.list.remove(f)
 
-            if f.stationaryFrames > 0:
-                del self.current_points[index]
-                del self.previous_points[index]
+            if f.stationaryFrames > 4:
                 self.list.remove(f)
+        self.len = len(self.list)
 
-            self.len = len(self.list)
+    def getActiveFeatures(self):
+        filteredList = []
+        for f in self.list:
+            if f.lastpos is not None:
+                if max(np.abs(np.subtract(f.pos, f.lastpos))) > 2.0:
+                    filteredList.append(f)
+        return filteredList
          
