@@ -76,7 +76,7 @@ class FeatureList:
         filteredList = []
         for f in self.list:
             if f.lastpos is not None:
-                # if the feature has moved more than 3 pixels, use it to reproject
+                # if the feature is active, use it to reproject
                 if f.isActive:
                     filteredList.append(f)
         return filteredList

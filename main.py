@@ -6,7 +6,7 @@ import imutils as im
 import csv
 
 vid_path = 'videos/drivingfootage.mp4'
-vid_path2 = 'videos/minecraft_rev.gif'
+vid_path2 = 'videos/minecraft2.gif'
 vid_path3 = 'videos/drivingfootage2.mov'
 image = 'videos/minecraft.png'
 camera_matrix_gopro = 'Camera Calibrations/Gopro_Camera_Matrix.csv'
