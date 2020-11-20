@@ -3,9 +3,11 @@ import numpy as np
 class Feature:
     # Radius of tracking
     FEATURESIZE = 24
+    STEPSIZE = 5
     def __init__(self, frame, pos):
         self.pos = pos
         self.lastpos = None
+        self.poshist = []
         self.isActive = True
         # define a bounding box centered at pos
         self.featureBB = (pos[0] - self.FEATURESIZE, pos[1] - self.FEATURESIZE, 2*self.FEATURESIZE, 2*self.FEATURESIZE)
@@ -16,8 +18,9 @@ class Feature:
     # updates the position of the feature using a new frame
     # returns true if the feature is still tractable, false if tracking has failed
     # the feature should be popped if this function returns false
-    def update(self, frame):
+    def update(self, frame): 
         self.lastpos = tuple(self.pos)
+        self.poshist.insert(0, self.pos)
         
         (succ, bbox) = self.tracker.update(frame)
         if (succ):
@@ -31,11 +34,10 @@ class Feature:
                 self.stationaryFrames = 0
 
             # if the feature has moved more than n px, mark it as active
-            if max(np.abs(np.subtract(self.pos, self.lastpos))) > 1.0:
+            if (max(np.abs(np.subtract(self.pos, self.lastpos))) > 1.0):
                 self.isActive = True
             else:
                 self.isActive = False
-
             return True
         else:
             return False
@@ -45,6 +47,9 @@ class Feature:
     
     def getPosI(self):
         return tuple([int(i) for i in self.pos])
+
+    def getPrevPos(self, n):
+        return self.poshist[n]
     
 class FeatureList:
     def __init__(self, featureList):
@@ -67,16 +72,26 @@ class FeatureList:
         for f in self.list:
             if not f.update(frame):
                 self.list.remove(f)
+                continue
 
             if f.stationaryFrames > 4:
                 self.list.remove(f)
+                continue
+            
+            # remove if near edge
+            if (abs(f.pos[0]) >= np.size(frame, 1) - 1) or (abs(f.pos[1]) >= np.size(frame, 0) - 1):
+                #print(f.pos)
+                #print( np.size(frame, 1) - 1)
+                self.list.remove(f)
+                continue
+
         self.len = len(self.list)
 
-    def getActiveFeatures(self):
+    def getActiveFeatures(self, minlife):
         filteredList = []
         for f in self.list:
-            if f.lastpos is not None:
-                # if the feature is active, use it to reproject
+            if f.lastpos is not None and (len(f.poshist) > minlife):
+                # if the feature is active and has existed for the last n frames, use it to reproject
                 if f.isActive:
                     filteredList.append(f)
         return filteredList
