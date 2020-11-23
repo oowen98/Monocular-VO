@@ -32,35 +32,41 @@ def ReadCameraMat(fileName):
     return cameraMatrix
 
 STEPSIZE = 5
+FPS_MULT = 4
+SCALE = 10
 
 if __name__ == '__main__':
 
-    cap = cv2.VideoCapture(vid_path2) #Change video path for different video
-    fast = cv2.FastFeatureDetector_create(threshold=50, nonmaxSuppression=True, type=2) #Feature Detector
-    frame_counter = 0
+    cap = cv2.VideoCapture(vid_path3) #Change video path for different video
+    fast = cv2.FastFeatureDetector_create(threshold=60, nonmaxSuppression=True, type=2) #Feature Detector
+    frame_counter = 1
     trajectory_map = np.zeros((600,600,3), dtype=np.uint8)
     featureList = ft.FeatureList([]) #List of actively Tracked Features
     cameraMatrix = ReadCameraMat(camera_matrix_minecraft)
     print(cameraMatrix)
     kp = []
-    trans_sum = np.zeros((3,1), dtype=np.float32)
-    rot_sum = np.eye(3, dtype=np.float32)
-    rot_prev = np.eye(3, dtype=np.float32)
-    trans_f = [0, 0, 0, 1.0]
+    update_flag = True
+    camera_tf = np.eye(3)
+    trans_f = [0, 0, 0]
 
     count = 0
     cv2.namedWindow('frame', cv2.WINDOW_AUTOSIZE)
     cv2.namedWindow('Trajectory', cv2.WINDOW_AUTOSIZE)
+
+    # pre-read one frame
+    _, frame = cap.read()
+    frame = im.resize(frame, width=600)
     while True:
-        success, frame = cap.read()
+        lastframe = frame
+        for i in range(0, FPS_MULT):
+            success, frame = cap.read()
+            if(success == 0):
+                break
         frame = im.resize(frame, width=600)
-        
         frame_counter += 1
-        if(success == 0):
-            break
 
         # min feature threshold
-        if (featureList.len <= 50):
+        if (featureList.len <= 80):
             kp = fast.detect(frame, None) #Returns a list of Keypoints
 
             points = cv2.KeyPoint_convert(kp) #(x,y) cooridinates of the detected corners
@@ -87,6 +93,9 @@ if __name__ == '__main__':
             # update every Mth frame
             if frame_counter % STEPSIZE == 0:
                 print("Updating...")
+                update_flag = True
+            
+            if update_flag:
                 prev_points = []
                 curr_points = []
                 for f in featureList.getActiveFeatures(STEPSIZE):
@@ -95,6 +104,8 @@ if __name__ == '__main__':
 
                 # only try to reproject if we have more than 10 active features
                 if (len(curr_points) > 10):
+                    update_flag = False # clear the feature check flag
+
                     prev_pts_norm = cv2.undistortPoints(np.expand_dims(prev_points, axis=1), cameraMatrix=cameraMatrix, distCoeffs=None)
                     curr_pts_norm = cv2.undistortPoints(np.expand_dims(curr_points, axis=1), cameraMatrix=cameraMatrix, distCoeffs=None)
                 
@@ -102,31 +113,53 @@ if __name__ == '__main__':
                     EssentialMatrix, mask = cv2.findEssentialMat(prev_pts_norm, curr_pts_norm, focal=1.0, pp=(0., 0.), method=cv2.LMEDS, prob=0.999, threshold=1.0)
 
                     #Get the Rotation Matrix and Translation vector from the essential matrix
-                    retval, rot_mat, trans_vec, mask = cv2.recoverPose(EssentialMatrix, prev_pts_norm, curr_pts_norm)
+                    #retval, rot_mat, trans_vec, mask = cv2.recoverPose(EssentialMatrix, prev_pts_norm, curr_pts_norm)
+                    rot1, rot2, trans = cv2.decomposeEssentialMat(EssentialMatrix)
 
-                    # construct homogeneous coordinate tf matrix
-                    tform = np.empty((4, 4))
-                    tform[:3,:3] = rot_mat
-                    tform[:3, 3] = np.multiply(trans_vec[:,0], 10)  # x10 amplifier to see clearly
-                    tform[3, :] = [0, 0, 0, 1.0]
+                    if trans[2,0] < 0:
+                        trans = np.multiply(trans, -1)
 
-                    # transform from camera reference to world reference
-                    tform = np.linalg.inv(tform)
+                    if abs(trans[0]) > 0.6 or abs(trans[1]) > 0.5:
+                        update_flag = True  # if translation is sideways, retry the step
+                        print("Translation abnormal, retrying next frame")
 
-                    # transform camera location
-                    trans_f = tform@trans_f
+                    if not update_flag:
+                        testvec1 = rot1@np.array([1, 0, 0])
+                        testvec2 = rot2@np.array([1, 0, 0])
 
-                    #print('trans_f: \n', trans_f)
-                    x = int(trans_f[0]) + 300
-                    y = int(trans_f[2]) + 300  #z coordinate is the one that is changing during the video
-                    cv2.circle(trajectory_map, (x,y), 1, (255,255,255), 2)
+                        theta1 = np.arctan2(testvec1[2], testvec1[0])
+                        theta2 = np.arctan2(testvec2[2], testvec2[0])
 
-                    text = 'Cooridinates: x: {} y: {} z: {}'.format(int(trans_sum[0]), int(trans_sum[1]), int(trans_sum[2]))
-                    trajectory_map[0:60, 0:600] = 0 #Clear the text on the screen
+                        if min(abs(theta1), abs(theta2)) > 1.57:
+                            update_flag = True # if rotation is over 90 degrees, retry the step
+                            print("Rotation abnormal, retrying next frame")
                     
-                    cv2.putText(trajectory_map, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, ) 
+                    if not update_flag:
+                        if abs(theta1) > abs(theta2):
+                            rot_mat = rot2
+                            print(theta2)
+                        else:
+                            rot_mat = rot1
+                            print(theta1)
+                        print(trans[:,0])
+
+                    if not update_flag:
+                        # rotate current camera
+                        camera_tf = rot_mat@camera_tf
+                        camera_tf = np.multiply(camera_tf, 1/np.linalg.norm(camera_tf@np.array([1,0,0]), 2)) # normalize
+                        trans_cam = camera_tf@trans
+
+                        # transform camera location
+                        trans_f = np.add(trans_f, trans_cam[:,0])
+                        x = int(trans_f[0]*SCALE) + 300
+                        y = int(trans_f[2]*SCALE) + 300  #z coordinate is the one that is changing during the video
+                        cv2.circle(trajectory_map, (x,y), 1, (255,255,255), 2)
+
+                        text = 'Cooridinates: x: {} y: {} z: {}'.format(int(trans_f[0]), int(trans_f[1]), int(trans_f[2]))
+                        trajectory_map[0:60, 0:600] = 0 #Clear the text on the screen
+                        
+                        cv2.putText(trajectory_map, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, )
             
-        
         
         cv2.imshow('frame', frame) #Display Frame on window  
         cv2.imshow('Trajectory', trajectory_map) 
@@ -137,14 +170,10 @@ if __name__ == '__main__':
 
         #Play video repeatedly.
         if(frame_counter == cap.get(cv2.CAP_PROP_FRAME_COUNT)):
-            #print('Frames: ', i)
             frame_counter = 0
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         
         count += 1
-
-print('net rotation: \n', rot_sum)
-print('net distance: \n', trans_sum)
 
 cap.release()
 cv2.destroyAllWindows()

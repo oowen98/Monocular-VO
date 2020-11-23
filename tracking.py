@@ -2,8 +2,7 @@ from cv2 import cv2
 import numpy as np
 class Feature:
     # Radius of tracking
-    FEATURESIZE = 24
-    STEPSIZE = 5
+    FEATURESIZE = 30
     def __init__(self, frame, pos):
         self.pos = pos
         self.lastpos = None
@@ -21,20 +20,20 @@ class Feature:
     def update(self, frame): 
         self.lastpos = tuple(self.pos)
         self.poshist.insert(0, self.pos)
-        
+
         (succ, bbox) = self.tracker.update(frame)
         if (succ):
             self.pos = (bbox[0] + bbox[2]/2, bbox[1] + bbox[3]/2)
             self.featureBB = bbox
             
-            # if the feature has moved less than 0.5 px, mark it as stationary
-            if max(np.abs(np.subtract(self.pos, self.lastpos))) < 0.5:
+            # if the feature has moved less than 0 px, mark it as stationary
+            if max(np.abs(np.subtract(self.pos, self.lastpos))) == 0:
                 self.stationaryFrames += 1
             else:
                 self.stationaryFrames = 0
 
             # if the feature has moved more than n px, mark it as active
-            if (max(np.abs(np.subtract(self.pos, self.lastpos))) > 1.0):
+            if (max(np.abs(np.subtract(self.pos, self.lastpos))) > 0):
                 self.isActive = True
             else:
                 self.isActive = False
@@ -74,14 +73,12 @@ class FeatureList:
                 self.list.remove(f)
                 continue
 
-            if f.stationaryFrames > 4:
+            if f.stationaryFrames > 10:
                 self.list.remove(f)
                 continue
             
             # remove if near edge
-            if (abs(f.pos[0]) >= np.size(frame, 1) - 1) or (abs(f.pos[1]) >= np.size(frame, 0) - 1):
-                #print(f.pos)
-                #print( np.size(frame, 1) - 1)
+            if (abs(f.pos[0]) >= np.size(frame, 1) - 5) or (abs(f.pos[1]) >= np.size(frame, 0) - 5):
                 self.list.remove(f)
                 continue
 
