@@ -9,13 +9,13 @@ import os
 Iphone = glob.glob('C:/Users/Owen/Desktop/School/ECE_2020_2021/Term 1/ELEC 421/Project/Code/videos/phone_camera_calibration/*.JPG') #location of either iphone or gopro images
 Gopro = glob.glob('C:/Users/Owen/Desktop/School/ECE_2020_2021/Term 1/ELEC 421/Project/Code/videos/gopro_camera_calibration/*.JPG')
 
-camera_type = 'Iphone' #Either Iphone or Gopro depending on which camera we want to calibrate for
+camera_type = 'Gopro' #Either Iphone or Gopro depending on which camera we want to calibrate for
 
 def image_resize(frame):
     if(camera_type == 'Gopro'):
-        size = (1333,1000) #Gopro Image ratio is 4:3
+        size = (800,600) #Gopro Image ratio is 4:3
     else:
-        size = (1280, 720) #Iphone image Ratio is 16:9
+        size = (640, 360) #Iphone image Ratio is 16:9
     img = cv2.resize(frame, dsize=size, interpolation=cv2.INTER_CUBIC) #Change resize shape
     return img
 
@@ -43,7 +43,7 @@ if __name__ == '__main__':
         filename = os.path.basename(image)
         
         img = cv2.imread(image)
-        #print(img.shape)
+        print(img.shape)
         img = image_resize(img)
         gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) #Makes it easier to find corners
 
