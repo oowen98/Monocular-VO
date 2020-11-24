@@ -6,6 +6,11 @@ import imutils as im
 import csv
 import pandas as pd
 
+import logging
+import datetime
+
+
+
 vid_path = 'videos/drivingfootage.mp4'
 vid_path2 = 'videos/minecraft_circle.gif'
 vid_path3 = 'videos/drivingfootage2.mov'
@@ -37,12 +42,13 @@ def ReadCameraMat(fileName):
 
 STEPSIZE = 1
 FPS_MULT = 2
-SCALE = 2
+SCALE = 3
 
 if __name__ == '__main__':
 
+
     cap = cv2.VideoCapture(vid_path5) #Change video path for different video
-    fast = cv2.FastFeatureDetector_create(threshold=60, nonmaxSuppression=True, type=2) #Feature Detector
+    fast = cv2.FastFeatureDetector_create(threshold=60, nonmaxSuppression=True, type=1) #Feature Detector
     frame_counter = 1
     trajectory_map = np.zeros((800,800,3), dtype=np.uint8)
     featureList = ft.FeatureList([]) #List of actively Tracked Features
@@ -52,7 +58,9 @@ if __name__ == '__main__':
     update_flag = True
     camera_tf = np.eye(3)
     trans_f = [0, 0, 0]
-
+    trans_f_prev = trans_f
+    diff = trans_f
+    trans = np.array([[0],[0],[0]])
     column_names = ["date", "speed"]
     df = pd.read_csv(GPS_data, usecols=column_names)
     speed = df.speed.to_list() #List of 
@@ -73,6 +81,12 @@ if __name__ == '__main__':
     #frame = im.resize(frame, width=600)
     frame = cv2.resize(frame, (640,360)) #Reisze to 640,360 for iphone video
     i = 0
+    Translation_error = False
+    Rotation_Error = False
+    Pushing = False
+    theta = 0
+    frames_since_last_push = 0
+    start_time = time.time()
     while True:
         lastframe = frame
         for i in range(0, FPS_MULT):
@@ -83,13 +97,19 @@ if __name__ == '__main__':
         #frame = im.resize(frame, width=600)
         frame = cv2.resize(frame, (640,360))
         j= int(np.floor(total_datapts*frame_counter/(total_frames)))
-        print('j: ', j)
+        #print('j: ', j)
       
         increment = speed[j]/fps
         #print('Speed: ', speed[x], ' Scale: ', SCALE)
         #print('Scale: ', SCALE)
         # min feature threshold
-        if (featureList.len <= 80):
+        if (featureList.len <= 95): #Was 80 before
+            if frames_since_last_push < 7: #In turns, easy to lose features, want to capture more by lowering threshold
+                fast.setThreshold(53)
+                FPS_MULT = 1
+            else:
+                fast.setThreshold(60)
+                FPS_MULT = 2
             kp = fast.detect(frame, None) #Returns a list of Keypoints
 
             points = cv2.KeyPoint_convert(kp) #(x,y) cooridinates of the detected corners
@@ -97,8 +117,10 @@ if __name__ == '__main__':
             # debug code for one feature
             for p in points: #Push all the features detected from FAST algorithm to the feature list
                 featureList.pushToList(ft.Feature(frame, p), 10)
+                Pushing = True
                 #print('Pushing, # Points: ', len(points))
             
+            frames_since_last_push = 0
         
         if (featureList.len > 0):
             featureList.updatePopList(frame)
@@ -140,31 +162,35 @@ if __name__ == '__main__':
                     #Get the Rotation Matrix and Translation vector from the essential matrix
                     #retval, rot_mat, trans_vec, mask = cv2.recoverPose(EssentialMatrix, prev_pts_norm, curr_pts_norm)
                     rot1, rot2, trans = cv2.decomposeEssentialMat(EssentialMatrix)
-                    print(trans)
+
                     if trans[2,0] < 0:
                         trans = np.multiply(trans, -1)
                     
-                    if abs(trans[0]) > 0.50 or abs(trans[1]) > 0.47:
+                    if abs(trans[0]) > 0.55 or abs(trans[1]) > 0.55:
                         update_flag = True  # if translation is sideways, retry the step
-                        print("Translation abnormal, retrying next frame")
-                    
+                        #print("Translation abnormal, retrying next frame")
+                        Translation_error = True
                     if not update_flag:
                         testvec1 = rot1@np.array([1, 0, 0])
                         testvec2 = rot2@np.array([1, 0, 0])
-
+                        #print(rot1)
+                        #print(testvec1)
                         theta1 = np.arctan2(testvec1[2], testvec1[0])
                         theta2 = np.arctan2(testvec2[2], testvec2[0])
 
                         if min(abs(theta1), abs(theta2)) > 0.15: #15 degrees
                             update_flag = True # if rotation is over 90 degrees, retry the step
-                            print("Rotation abnormal, retrying next frame")
+                            #print("Rotation abnormal, retrying next frame")
+                            Rotation_Error = True
                     
                     if not update_flag:
                         if abs(theta1) > abs(theta2):
                             rot_mat = rot2
+                            theta = theta2
                             #print(theta2*180/np.pi)
                         else:
                             rot_mat = rot1
+                            theta = theta1
                             #print(theta1*180/np.pi)
                         #print(trans[:,0])
 
@@ -173,29 +199,41 @@ if __name__ == '__main__':
                         camera_tf = rot_mat@camera_tf
                         camera_tf = np.multiply(camera_tf, 1/np.linalg.norm(camera_tf@np.array([1,0,0]), 2)) # normalize
                         trans_cam = (camera_tf@trans)*increment
-
+                        print(trans_cam[:,0])
                         # transform camera location
                         trans_f = np.add(trans_f, trans_cam[:,0])
+                        diff = trans_f - trans_f_prev
 
                         x = int(trans_f[0]*SCALE) + 600
-                        y = int(trans_f[2]*SCALE) + 400  #z coordinate is the one that is changing during the video
+                        y = int(trans_f[2]*SCALE) + 500  #z coordinate is the one that is changing during the video
                         cv2.circle(trajectory_map, (x,y), 1, (255,255,255), 2)
 
                         velocity = speed[j]*3600.0/1000.0 #km/h
                         distance = distance + increment*(frame_counter - prev_frame_counter)
                         prev_frame_counter = frame_counter
                         text = 'Cooridinates: x: {} y: {} z: {} \n Speed: {} km/hr Distance Travelled: {:.2f} m'.format(int(trans_f[0]), int(trans_f[1]), int(trans_f[2]), int(velocity), distance)
-                        trajectory_map[0:120, 0:800] = 0 #Clear the text on the screen
+                        trajectory_map[0:60, 0:800] = 0 #Clear the text on the screen
                         
                         cv2.putText(trajectory_map, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, )
+                        trans_f_prev = trans_f
             
-        
+        #print('Frame #: ', frame_counter, ' Translation Error: ', Translation_error, ' Rotation Error: ', Rotation_Error, ' Rotation Angle: ', int(theta*180/np.pi),
+        #       ' Difference: x: ', diff[0], ' y: ', diff[1], ' z: ', diff[2], ' FAST Threshold: ', fast.getThreshold())
+
+        print('Frame #: {} Translation Error: {} Rotation Error {} Rotation Angle: {} trans_vector: x: {:.4f} y: {:.4f} z: {:.4f} FAST Threshold: {} # Active Features {} Feature List Length {} Pushing {}'.format(
+                frame_counter, Translation_error, Rotation_Error, int(theta*180/np.pi), float(trans[0]), float(trans[1]), float(trans[2]), fast.getThreshold(), len(curr_points), featureList.len, Pushing ))
+        Translation_error = False
+        Rotation_Error = False
+        Pushing = False
+
         cv2.imshow('frame', frame) #Display Frame on window  
         cv2.imshow('Trajectory', trajectory_map) 
         i += 1
         #Close program when key 'q' is pressed
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+        if cv2.waitKey(1) == ord('p'): #press p to pause
+            cv2.waitKey(-1) 
         '''
         #Play video repeatedly.
         if(frame_counter == cap.get(cv2.CAP_PROP_FRAME_COUNT)):
@@ -203,7 +241,10 @@ if __name__ == '__main__':
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         '''
         count += 1
-
+        frames_since_last_push += 1
+    
+duration = time.time() - start_time
+print('Duration: ', str(datetime.timedelta(seconds=duration)))
 print('Total Frames: ', frame_counter)
 print('Total While Loop Iterations: ', count)
 cv2.imwrite('map.png', trajectory_map)
