@@ -4,7 +4,7 @@ class Feature:
     # Radius of tracking
     FEATURESIZE = 30
     def __init__(self, frame, pos):
-        self.pos = pos
+        self.pos = tuple(pos)
         self.lastpos = None
         self.poshist = []
         self.isActive = True
@@ -26,8 +26,8 @@ class Feature:
             self.pos = (bbox[0] + bbox[2]/2, bbox[1] + bbox[3]/2)
             self.featureBB = bbox
             
-            # if the feature has moved less than 0 px, mark it as stationary
-            if max(np.abs(np.subtract(self.pos, self.lastpos))) == 0:
+            # if the feature has moved less than 0.1 px, mark it as stationary
+            if max(np.abs(np.subtract(self.pos, self.lastpos))) < 0.1:
                 self.stationaryFrames += 1
             else:
                 self.stationaryFrames = 0
@@ -48,7 +48,7 @@ class Feature:
         return tuple([int(i) for i in self.pos])
 
     def getPrevPos(self, n):
-        return self.poshist[n]
+        return self.poshist[n-1]
     
 class FeatureList:
     def __init__(self, featureList):
@@ -70,15 +70,16 @@ class FeatureList:
     def updatePopList(self, frame):
         for f in self.list:
             if not f.update(frame):
-                self.list.remove(f)
-                continue
+                #self.list.remove(f)
+                f.stationaryFrames += 2
+                f.isActive = False
 
-            if f.stationaryFrames > 10:
+            if f.stationaryFrames > 8:
                 self.list.remove(f)
                 continue
             
             # remove if near edge
-            if (abs(f.pos[0]) >= np.size(frame, 1) - 5) or (abs(f.pos[1]) >= np.size(frame, 0) - 5):
+            if (f.pos[0] >= np.size(frame, 1) - 5) or (f.pos[1] >= np.size(frame, 0) - 5) or (f.pos[0] <= 5) or (f.pos[1] <= 5):
                 self.list.remove(f)
                 continue
 
