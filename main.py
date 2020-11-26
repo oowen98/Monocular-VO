@@ -8,17 +8,19 @@ import pandas as pd
 
 import logging
 import datetime
+import pickle
 
+VIDEO_NAME = 'GH011027'
 
 vid_path = 'videos/drivingfootage.mp4'
 vid_path2 = 'videos/minecraft_circle.gif'
 vid_path3 = 'videos/drivingfootage2.mov'
-vid_path4 = 'videos/GH011027.mp4'
-vid_path5 = 'videos/GH011028.mp4'
+vid_path4 = 'videos/'+ VIDEO_NAME +'.mp4'
+
 CMAT_GOPRO = 'Camera Calibrations/Gopro_Camera_Matrix_test.csv'
 CMAT_IPH = 'Camera Calibrations/Iphone_Camera_Matrix.csv'
 CMAT_MC = 'Camera Calibrations/Minecraft_Camera_Matrix.csv'
-GPS_data = 'videos/GH011028_HERO8 Black-GPS5.csv'
+GPS_data = 'videos/' + VIDEO_NAME + '_HERO8 Black-GPS5.csv'
 
 def refillFeatures(frame, featureList, FASTDetector, minFeatures):
     pushed = False
@@ -107,6 +109,21 @@ def getTransRot(pts1, pts2):
 
     return trans, rot_mat
 
+def getDepth(frame, DepthFeatureList, FASTDetector, minFeatures):
+    frame_center = (int(frame.shape[0]/2), int(frame.shape[1]/2))
+    mask = frame[100:(frame_center[0]-100), (frame_center[1]+50):frame.shape[1]-100, :]
+    offset = (100, frame_center[1]+50)
+
+    if DepthFeatureList.len < minFeatures:
+        FASTDetector.setThreshold(50)
+        kp = FASTDetector.detect(mask, None)
+        points = cv2.KeyPoint_convert(kp)
+
+        for p in points: 
+            DepthFeatureList.pushToList(ft.Feature(frame, np.add(p, offset)), 5)
+
+    #return Depth 
+
 def ReadCameraMat(fileName):
     matrix = []
     with open(fileName) as file:
@@ -130,12 +147,13 @@ CMAT = ReadCameraMat(CMAT_GOPRO)
 FPS = 30
 
 if __name__ == '__main__':
-    cap = cv2.VideoCapture(vid_path5) #Change video path for different video
+    cap = cv2.VideoCapture(vid_path4) #Change video path for different video
     fast = cv2.FastFeatureDetector_create(threshold=60, nonmaxSuppression=True, type=1) #Feature Detector
     frame_counter = 1
     trajectory_map = np.zeros((800,800,3), dtype=np.uint8)
     featureList = ft.FeatureList([]) #List of actively Tracked Features
-    
+    DepthFeatureList = ft.FeatureList([])
+
     print(CMAT)
     kp = []
     update_flag = True
@@ -144,20 +162,31 @@ if __name__ == '__main__':
     trans_f_prev = trans_f
     diff = trans_f
     trans = np.array([[0],[0],[0]])
-    column_names = ["date", "speed"]
+
+    column_names = ["date", "speed"] #Reading GPS Data for speed
     df = pd.read_csv(GPS_data, usecols=column_names)
-    speed = df.speed.to_list() #List of 
+    speed = df.speed.to_list() 
+
+    x_cord = []
+    y_cord = []
+
     count = 0
     distance = 0
     prev_frame_counter = 0
     cv2.namedWindow('frame', cv2.WINDOW_AUTOSIZE)
     cv2.namedWindow('Trajectory', cv2.WINDOW_AUTOSIZE)
 
-    total_frames = 1807 #For GH011027.mp4
-    total_datapts = 1071
-    total_frames = 3460 #For GH011028.mp4
-    total_datapts = 2032
+    if VIDEO_NAME == 'GH011027':
+        total_frames = 1807 #For GH011027.mp4
+        total_datapts = 1071
+    elif VIDEO_NAME == 'GH011028':
+        total_frames = 3460 #For GH011028.mp4
+        total_datapts = 2032
+    else:
+        print('Check Video Name for Speed file')
     increment = 0
+    increment = np.sum(speed)/(len(speed)*FPS)
+    print('Increment: ', increment)
     # pre-read one frame
     _, frame = cap.read()
 
@@ -176,18 +205,45 @@ if __name__ == '__main__':
             break
 
         frame = cv2.resize(frame, FRAME_SIZE)
-
+        Cx = int(frame.shape[0]/2)
+        Cy = int(frame.shape[1]/2)
         j = int(np.floor(total_datapts*frame_counter/(total_frames)))
-        increment = speed[j]/FPS
+        #increment = speed[j]/FPS
 
-        Pushing = refillFeatures(frame, featureList, fast, 40)  
-
+        #Pushing = refillFeatures(frame, featureList, fast, 40)  
+        getDepth(frame, DepthFeatureList, fast, 10)
         if Pushing: 
             frames_since_last_push = 0
-        
+
+        if(DepthFeatureList.len > 0):
+            DepthFeatureList.updatePopList(frame)
+
+            if(DepthFeatureList.len > 0):
+                #Get 1 Feature
+                pos_d = DepthFeatureList.list[0].getPosI()
+                x_transformed = pos_d[0]/(abs(Cx - pos_d[0]))
+                y_transformed = pos_d[1]/(abs(Cy - pos_d[1]))
+
+                factor = abs(x_transformed - y_transformed)
+                print('factor: ', factor)
+
+            
+
+            for f in DepthFeatureList.list:
+                bbox = f.getBBoxI()
+                p1 = (bbox[0], bbox[1])
+                p2 = (bbox[2] + bbox[0] , bbox[3] + bbox[1])
+                
+                #Draw the bounding box
+                if f.isActive:
+                    #cv2.rectangle(frame, p1, p2, (0,0,255), 2,1)
+                    cv2.circle(frame, tuple(f.getPosI()), 7, (0,255,255), -1)
+
+            
+
         if (featureList.len > 0):
             featureList.updatePopList(frame)
-            
+            '''
             for f in featureList.list:    
                 bbox = f.getBBoxI()
                 p1 = (bbox[0], bbox[1])
@@ -200,7 +256,7 @@ if __name__ == '__main__':
                 else:
                     #cv2.rectangle(frame, p1, p2, (255,0,0), 2,1)
                     cv2.circle(frame, tuple(f.getPosI()), 7, (255,0,0), -1)
-            
+            '''
             # update every step frames
             if frame_counter % (STEPSIZE) == 0:
                 #print("Updating...")
@@ -235,12 +291,14 @@ if __name__ == '__main__':
 
                 x = int(trans_f[0]*SCALE) + 400
                 y = int(trans_f[2]*SCALE) + 400  #z coordinate is the one that is changing during the video
-                cv2.circle(trajectory_map, (x,y), 1, (255,255,255), 2)
-
+                x_cord.append(x)
+                y_cord.append(y)
+                cv2.circle(trajectory_map, (x,y), 1, (255,0,255), 2)
+                
                 velocity = speed[j]*3600.0/1000.0 #km/h
                 distance = distance + increment*(frame_counter - prev_frame_counter)
                 prev_frame_counter = frame_counter
-                text = 'Cooridinates: x: {} y: {} z: {} \n Speed: {} km/hr Distance Travelled: {:.2f} m'.format(int(trans_f[0]), int(trans_f[1]), int(trans_f[2]), int(velocity), distance)
+                text = 'Cooridinates: x: {} y: {} Speed: {} km/h Distance Travelled: {:.2f} m'.format(x-400, y-400, int(velocity), distance)
                 trajectory_map[0:60, 0:800] = 0 #Clear the text on the screen
                 
                 cv2.putText(trajectory_map, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, )
@@ -249,7 +307,7 @@ if __name__ == '__main__':
         #print('Frame #: {}  trans_vector: x: {:.4f} y: {:.4f} z: {:.4f} FAST Threshold: {} # Active Features {} Feature List Length {} Pushing {}'.format(
         #       frame_counter, float(trans[0]), float(trans[1]), float(trans[2]), fast.getThreshold(), len(curr_points), featureList.len, Pushing ))
         Pushing = False
-
+        cv2.circle(frame, (int(frame.shape[1]/2), int(frame.shape[0]/2)),7, (255,0,255), -1)
         cv2.imshow('frame', frame) #Display Frame on window  
         cv2.imshow('Trajectory', trajectory_map) 
         i += 1
@@ -268,10 +326,14 @@ if __name__ == '__main__':
         frames_since_last_push += 1
     
 duration = time.time() - start_time
+coords = list(zip(x_cord,y_cord))
+df = pd.DataFrame(coords, columns = ['x', 'y'])
+df.to_csv('coordinates'+ VIDEO_NAME + '.csv', index=True)
+pickle.dump(trajectory_map, open("trajectory_map_" + VIDEO_NAME + ".bin", "wb"))
 print('Duration: ', str(datetime.timedelta(seconds=duration)))
 print('Total Frames: ', frame_counter)
 print('Total While Loop Iterations: ', count)
-cv2.imwrite('map.png', trajectory_map)
+cv2.imwrite(VIDEO_NAME + '_map.png', trajectory_map)
 cap.release()
 cv2.destroyAllWindows()
 
