@@ -2,12 +2,13 @@ from cv2 import cv2
 import numpy as np
 class Feature:
     # Radius of tracking
-    FEATURESIZE = 30
-    def __init__(self, frame, pos):
+    #FEATURESIZE = 30
+    def __init__(self, frame, pos, feature_size):
         self.pos = tuple(pos)
         self.lastpos = None
         self.poshist = []
         self.isActive = True
+        self.FEATURESIZE = feature_size
         # define a bounding box centered at pos
         self.featureBB = (pos[0] - self.FEATURESIZE, pos[1] - self.FEATURESIZE, 2*self.FEATURESIZE, 2*self.FEATURESIZE)
         self.tracker = cv2.TrackerMOSSE_create()
