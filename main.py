@@ -207,7 +207,7 @@ if __name__ == '__main__':
     x_scale = []
     y_scale = []
     speedFactor = 1
-    speedFactors = []
+    speedFactors = [1.0]
     count = 0
     distance = 0
     prev_frame_counter = 0
@@ -261,8 +261,10 @@ if __name__ == '__main__':
         if(roadFeatureList.len > 0):
             relSpeed = getRelSpeed(roadFeatureList, Cx, Cy, 4)
             if (relSpeed is not None):
-                speedFactor = relSpeed
                 speedFactors.append(speedFactor)
+                if (abs(relSpeed - speedFactors[-2]) < 4 ):
+                    speedFactor = relSpeed
+            
                 
             for f in roadFeatureList.list:
                 cv2.circle(frame, tuple(f.getPosI()), 7, (0,255,255), -1)       
