@@ -2,18 +2,31 @@ from cv2 import cv2
 import numpy as np
 class Feature:
     # Radius of tracking
-    #FEATURESIZE = 30
-    def __init__(self, frame, pos, feature_size):
+    def __init__(self, frame, pos, feature_size, *args, **kwargs):
         self.pos = tuple(pos)
         self.lastpos = None
         self.poshist = []
         self.isActive = True
-        self.FEATURESIZE = feature_size
+        self.featureSize = feature_size
         # define a bounding box centered at pos
-        self.featureBB = (pos[0] - self.FEATURESIZE, pos[1] - self.FEATURESIZE, 2*self.FEATURESIZE, 2*self.FEATURESIZE)
-        self.tracker = cv2.TrackerMOSSE_create()
-        self.tracker.init(frame, self.featureBB)
+        self.featureBB = (pos[0] - self.featureSize, pos[1] - self.featureSize, 2*self.featureSize, 2*self.featureSize)
         self.stationaryFrames = 0
+        self.tracker = cv2.TrackerMOSSE_create()
+        self.maxLife = 10000
+        for key in kwargs:
+            if key == "tracker":
+                if kwargs[key] == "MFlow":
+                    self.tracker = cv2.TrackerMedianFlow_create()
+                elif kwargs[key] == "MOSSE":
+                    self.tracker = cv2.TrackerMOSSE_create()
+                elif kwargs[key] == "KCF":
+                    self.tracker = cv2.TrackerKCF_create()
+                elif kwargs[key] == "CSRT":
+                    self.tracker = cv2.TrackerCSRT_create()
+            if key == "maxLife":
+                self.maxLife = kwargs[key]
+
+        self.tracker.init(frame, self.featureBB)
     
     # updates the position of the feature using a new frame
     # returns true if the feature is still tractable, false if tracking has failed
@@ -21,6 +34,9 @@ class Feature:
     def update(self, frame): 
         self.lastpos = tuple(self.pos)
         self.poshist.insert(0, self.pos)
+
+        if len(self.poshist) > self.maxLife:
+            return False
 
         (succ, bbox) = self.tracker.update(frame)
         if (succ):
@@ -72,7 +88,7 @@ class FeatureList:
         for f in self.list:
             if not f.update(frame):
                 #self.list.remove(f)
-                f.stationaryFrames += 2
+                f.stationaryFrames += 3
                 f.isActive = False
 
             if f.stationaryFrames > 8:
@@ -83,6 +99,7 @@ class FeatureList:
             if (f.pos[0] >= np.size(frame, 1) - 5) or (f.pos[1] >= np.size(frame, 0) - 5) or (f.pos[0] <= 5) or (f.pos[1] <= 5):
                 self.list.remove(f)
                 continue
+
 
         self.len = len(self.list)
 

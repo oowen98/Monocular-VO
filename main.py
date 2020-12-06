@@ -113,18 +113,42 @@ def getTransRot(pts1, pts2):
     return trans, rot_mat
 
 #Calculating the relative scale - visual speedometry 
-def getDepth(frame, DepthFeatureList, FASTDetector, minFeatures):
+def getDepth(frame, roadFeatureList, FASTDetector):
     frame_center = (int(frame.shape[0]/2), int(frame.shape[1]/2))
-    mask = frame[100:(frame.shape[0]-100), (frame_center[1]+50):frame.shape[1]-100, :]
+    #mask = frame[100:(frame.shape[0]-100), (frame_center[1]+50):frame.shape[1]-100, :]
     offset = (100, frame_center[1]+50)
 
-    if DepthFeatureList.len < minFeatures:
-        FASTDetector.setThreshold(30)
-        kp = FASTDetector.detect(mask, None)
-        points = cv2.KeyPoint_convert(kp)
+    if roadFeatureList.len < 4:
+        #FASTDetector.setThreshold(30)
+        #kp = FASTDetector.detect(mask, None)
 
-        for p in points: 
-            DepthFeatureList.pushToList(ft.Feature(frame, np.add(p, offset), 60), 5)
+        #points = cv2.KeyPoint_convert(kp)
+        roadPoints = []
+        for i in range(0,30):
+            x = frame_center[0] + 400 * (np.random.random() - 1/2) + 100
+            y = frame_center[0] + 80 * (np.random.random()) + 140
+            roadPoints.append( (x,y) ) 
+
+        for p in roadPoints: 
+            roadFeatureList.pushToList(ft.Feature(frame, p, 25, tracker="KCF", maxLife=30), 1)
+
+def getRelSpeed(roadFeatureList, Cx, Cy, nframes):
+    speeds = []
+    for roadPoint in roadFeatureList.list:
+        if len(roadPoint.poshist) < nframes:
+            continue
+        #radialDist1 = np.sqrt((Cx - roadPoint.pos[0])**2 + (Cy - roadPoint.pos[1])**2)
+        #radialDist2 = np.sqrt((Cx - roadPoint.getPrevPos(nframes)[0])**2 + (Cy - roadPoint.getPrevPos(nframes)[1])**2)
+
+        # calculate transformed velocity
+        depth1 = Cy / abs(Cy - roadPoint.pos[1])
+        depth2 = Cy / abs(Cy - roadPoint.getPrevPos(nframes)[1])
+        speeds.append(abs(depth2 - depth1))
+    if len(speeds) == 0:
+        return None
+    else:
+        return np.amax(speeds) * 5
+
 
 #Reading the Camera Matrix from the csv file
 def ReadCameraMat(fileName):
@@ -156,7 +180,7 @@ if __name__ == '__main__':
     frame_counter = 1
     trajectory_map = np.zeros((800,800,3), dtype=np.uint8)
     featureList = ft.FeatureList([]) #List of actively Tracked Features
-    DepthFeatureList = ft.FeatureList([])
+    roadFeatureList = ft.FeatureList([])
 
     print(CMAT)
     kp = []
@@ -171,7 +195,6 @@ if __name__ == '__main__':
     column_names = ["date", "speed"] #Reading GPS Data for speed
     df = pd.read_csv(GPS_data, usecols=column_names)
     speed = df.speed.to_list() 
-
     x_cord = []
     y_cord = []
     x_cord1 = []
@@ -183,9 +206,8 @@ if __name__ == '__main__':
     x_transformed_prev = 0
     x_scale = []
     y_scale = []
-    factor = 0
-    factor_prev = 0
-    factor_MA = 0
+    speedFactor = 1
+    speedFactors = []
     count = 0
     distance = 0
     prev_frame_counter = 0
@@ -227,60 +249,23 @@ if __name__ == '__main__':
         increment_list.append(increment)
         increment_MA = np.sum(increment_list)/j
         Pushing = refillFeatures(frame, featureList, fast, 40)  
-        getDepth(frame, DepthFeatureList, fast, 20)
+        
+        
+        getDepth(frame, roadFeatureList, fast)
+        if(roadFeatureList.len > 0):
+            roadFeatureList.updatePopList(frame)
+        
         if Pushing: 
             frames_since_last_push = 0
         
-        if(DepthFeatureList.len > 0):
-            DepthFeatureList.updatePopList(frame)
-
-            if(DepthFeatureList.len > 0):
-                #Get 1 Feature
-                pos_d = DepthFeatureList.list[0].getPosI()
-                try:
-                    x_transformed = pos_d[0]/(abs(Cx - pos_d[0]))
-                except ZeroDivisionError:
-                    x_transformed = x_transformed_prev
-
-                try:
-                    y_transformed = pos_d[1]/(abs(Cy - pos_d[1]))
-                except ZeroDivisionError:
-                    y_transformed = y_transformed_prev
-
-                if (y_transformed - y_transformed_prev > 6.9):
-                    y_transformed = y_transformed_prev
-
-                if(x_transformed - x_transformed_prev > 6.9):
-                    x_transformed = x_transformed_prev
-
-                factor = abs(x_transformed - y_transformed)
-                if(factor - factor_prev > 2.5):
-                    factor = factor_prev
-
+        if(roadFeatureList.len > 0):
+            relSpeed = getRelSpeed(roadFeatureList, Cx, Cy, 4)
+            if (relSpeed is not None):
+                speedFactor = relSpeed
+                speedFactors.append(speedFactor)
                 
-
-                if factor != 0:
-                    RELATIVE_SCALE.append(factor)
-                    factor_MA = np.sum(RELATIVE_SCALE)/num_elements
-                    num_elements += 1
-                #print('num_elements: ', num_elements, ' factor: ', factor, ' factor MA: ', factor_MA)
-                x_scale.append(x_transformed)
-                y_scale.append(y_transformed)
-                y_transformed_prev = y_transformed
-                x_transformed_prev = x_transformed
-                factor_prev = factor
-                
-            for f in DepthFeatureList.list:
-                bbox = f.getBBoxI()
-                p1 = (bbox[0], bbox[1])
-                p2 = (bbox[2] + bbox[0] , bbox[3] + bbox[1])
-                
-                #Draw the bounding box
-                if f.isActive:
-                    #cv2.rectangle(frame, p1, p2, (0,0,255), 2,1)
-                    cv2.circle(frame, tuple(f.getPosI()), 7, (0,255,255), -1)
-        
-            
+            for f in roadFeatureList.list:
+                cv2.circle(frame, tuple(f.getPosI()), 7, (0,255,255), -1)       
 
         if (featureList.len > 0):
             featureList.updatePopList(frame)
@@ -325,7 +310,8 @@ if __name__ == '__main__':
                 camera_tf = rot_mat@camera_tf
                 camera_tf = np.multiply(camera_tf, 1/np.linalg.norm(camera_tf@np.array([1,0,0]), 2)) # normalize
                 trans_cam = (camera_tf@trans)*increment_MA*STEPSIZE*FPS_MULT*1
-                trans_cam1 = (camera_tf@trans)*factor_MA*STEPSIZE*FPS_MULT*0.20
+                trans_cam1 = (camera_tf@trans)*speedFactor*STEPSIZE*FPS_MULT*0.20
+                print(speedFactor)
                 #print('factor: ', factor, ' factor MA: ', factor_MA, ' increment: ', increment, ' increment MA: ', increment_MA)
                 # transform camera location
                 trans_f = np.add(trans_f, trans_cam[:,0])
@@ -370,8 +356,8 @@ if __name__ == '__main__':
         frames_since_last_push += 1
     
 duration = time.time() - start_time
-coords = list(zip(x_cord,y_cord,x_cord1,y_cord1,RELATIVE_SCALE,x_scale,y_scale, increment_list))
-df = pd.DataFrame(coords, columns = ['x', 'y', 'x1', 'y1','Relative Scale', 'x_transformed', 'y_transformed', 'increment list'])
+coords = list(zip(x_cord,y_cord,x_cord1,y_cord1,RELATIVE_SCALE, speedFactors, increment_list))
+df = pd.DataFrame(coords, columns = ['x', 'y', 'x1', 'y1','Relative Scale', 'increment list'])
 df.to_csv('Factor and SCALE_coordinates7'+ VIDEO_NAME + '.csv', index=True)
 
 pickle.dump(trajectory_map, open("Factor and SCALE_trajectory_map7_" + VIDEO_NAME + ".bin", "wb"))
