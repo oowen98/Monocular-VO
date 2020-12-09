@@ -84,13 +84,14 @@ class FeatureList:
         return True
     
     # update all stored features and pop the untractable ones
+    # returns nothing
     def updatePopList(self, frame):
         for f in self.list:
             if not f.update(frame):
-                #self.list.remove(f)
-                f.stationaryFrames += 3
+                f.stationaryFrames += 3 # failed updates are 3x more costly than stationary frames
                 f.isActive = False
 
+            # kill the feature if it's stationary
             if f.stationaryFrames > 8:
                 self.list.remove(f)
                 continue
@@ -99,15 +100,14 @@ class FeatureList:
             if (f.pos[0] >= np.size(frame, 1) - 5) or (f.pos[1] >= np.size(frame, 0) - 5) or (f.pos[0] <= 5) or (f.pos[1] <= 5):
                 self.list.remove(f)
                 continue
-
-
         self.len = len(self.list)
 
+    # returns a list of features that are currently active
+    # and have existed for at least n frames
     def getActiveFeatures(self, minlife):
         filteredList = []
         for f in self.list:
             if f.lastpos is not None and (len(f.poshist) > minlife):
-                # if the feature is active and has existed for the last n frames, use it to reproject
                 if f.isActive:
                     filteredList.append(f)
         return filteredList

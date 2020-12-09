@@ -181,13 +181,11 @@ if __name__ == '__main__':
 
     # Initializations
     print(CMAT)
-    kp = []
     update_flag = True
     camera_tf = np.eye(3)
     trans_f = [0, 0, 0]
     trans_f1 = trans_f
     trans_f_prev = trans_f
-    diff = trans_f
     trans = np.array([[0],[0],[0]])
 
     column_names = ["date", "speed"] #Reading GPS Data for speed
@@ -201,7 +199,7 @@ if __name__ == '__main__':
     increment_list = []
     speedFactor = 1     # visual speedometry speed
     speedFactors = [1.0]
-    count = 0
+    iteration_count = 0
     distance = 0
     prev_frame_counter = 0
     cv2.namedWindow('frame', cv2.WINDOW_AUTOSIZE)
@@ -226,23 +224,31 @@ if __name__ == '__main__':
     
     ###################################### MAIN LOOP ##########################################
     while True:
-        #lastframe = frame
+        # read ever FPS_MULTth frame
         for i in range(0, FPS_MULT):
             success, frame = cap.read()
             frame_counter += 1
         if(success == 0):
             break
+
+        # downscale the frame to process faster
         frame = cv2.resize(frame, FRAME_SIZE)
+
+        # find center of frame
         Cx = int(frame.shape[0]/2)
         Cy = int(frame.shape[1]/2)
+
+        # find linear interpolation of GPS telemetry speed data
         j = int(np.floor(SPEED_DATA_PTS*frame_counter/(TOTAL_FRAMES)))
         increment = speed[j]/FPS
         increment_list.append(increment)
-        increment_MA = np.sum(increment_list)/j
+        increment_MA = np.sum(increment_list[max(j-4, 0):j])/4 # moving average
 
+        # do feature detection
         refillFeatures(frame, featureList, fast, 40)  
         getRoadFeatures(frame, roadFeatureList)
 
+        # update road feature trackers and calculate relative speed
         if(roadFeatureList.len > 0):
             roadFeatureList.updatePopList(frame)
         
@@ -253,10 +259,11 @@ if __name__ == '__main__':
                 if (abs(relSpeed - speedFactors[-2]) < 5 ):
                     speedFactor = relSpeed
             
-                
+            # draw road markers
             for f in roadFeatureList.list:
                 cv2.circle(frame, tuple(f.getPosI()), 7, (0,255,255), -1)       
 
+        # update general feature trackers
         if (featureList.len > 0):
             featureList.updatePopList(frame)
             
@@ -265,7 +272,7 @@ if __name__ == '__main__':
                 p1 = (bbox[0], bbox[1])
                 p2 = (bbox[2] + bbox[0] , bbox[3] + bbox[1])
                 
-                #Draw the visual markers
+                #Draw feature markers
                 if f.isActive:
                     #cv2.rectangle(frame, p1, p2, (0,0,255), 2,1)
                     cv2.circle(frame, tuple(f.getPosI()), 7, (255,0,255), -1)
@@ -273,7 +280,7 @@ if __name__ == '__main__':
                     #cv2.rectangle(frame, p1, p2, (255,0,0), 2,1)
                     cv2.circle(frame, tuple(f.getPosI()), 7, (255,0,0), -1)
             
-            # update every step frames
+            # update every STEP frames
             if frame_counter % (STEPSIZE) == 0:
                 update_flag = True
             
@@ -341,17 +348,18 @@ if __name__ == '__main__':
         if cv2.waitKey(1) == ord('p'): #press p to pause
             cv2.waitKey(-1) 
 
-        count += 1
-    
+        # increment the iteration counter and repeat
+        iteration_count += 1
+
+# save trajectory data
 duration = time.time() - start_time
 coords = list(zip(x_cord,y_cord,x_cord1,y_cord1, speedFactors, increment_list))
 df = pd.DataFrame(coords, columns = ['x', 'y', 'x1', 'y1','Relative Scale', 'increment list'])
 df.to_csv('Factor and SCALE_coordinates7'+ VIDEO_NAME + '.csv', index=True)
-
 pickle.dump(trajectory_map, open("Factor and SCALE_trajectory_map7_" + VIDEO_NAME + ".bin", "wb"))
 print('Duration: ', str(datetime.timedelta(seconds=duration)))
 print('Total Frames: ', frame_counter)
-print('Total While Loop Iterations: ', count)
+print('Total While Loop Iterations: ', iteration_count)
 cv2.imwrite(VIDEO_NAME + '_map7.png', trajectory_map)
 cap.release()
 cv2.destroyAllWindows()
