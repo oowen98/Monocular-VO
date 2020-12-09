@@ -71,29 +71,34 @@ def refillFeatures(frame, featureList, FASTDetector, minFeatures):
             points = cv2.KeyPoint_convert(kp) #(x,y) cooridinates of the detected corners
 
             for p in points: 
-                featureList.pushToList(ft.Feature(frame, np.add(p, offset), 30), 10)
+                featureList.pushToList(ft.Feature(frame, np.add(p, offset), 30, tracker="MOSSE"), 10)
 
             pushed = True
     return pushed
         
-#Getting the Essential Matrix based of points at frame t and frame t + 1
+#Getting the Essential Matrix from two sets of points
 def getTransRot(pts1, pts2):
-    #Calculate the Essential Matrix from the prev, current points and the Camera Matrix from calibration using the RANSAC method        
+    #Apply LMedS solver    
     EssentialMatrix, _ = cv2.findEssentialMat(pts1, pts2, focal=1.0, pp=(0., 0.), method=cv2.LMEDS, prob=0.999)
 
-    #Get the Rotation Matrix and Translation vector from the essential matrix
-    #retval, rot_mat, trans_vec, mask = cv2.recoverPose(EssentialMatrix, prev_pts_norm, curr_pts_norm)
+    #Automatic selection, may not work well
+    #_, rot_mat, trans_vec, _ = cv2.recoverPose(EssentialMatrix, prev_pts_norm, curr_pts_norm)
+
+    #Get the Rotation Matrix and Translation vectors from the essential matrix
     rot1, rot2, trans = cv2.decomposeEssentialMat(EssentialMatrix)
 
+    #Get the positive translation
     if trans[2,0] < 0:
         trans = np.multiply(trans, -1)
 
+    #Calculate azimuth of rotations
     if not update_flag:
         testvec1 = rot1@np.array([1, 0, 0])
         testvec2 = rot2@np.array([1, 0, 0])
         theta1 = np.arctan2(testvec1[2], testvec1[0])
         theta2 = np.arctan2(testvec2[2], testvec2[0])
     
+    #Use the smaller rotation
     if not update_flag:
         if abs(theta1) > abs(theta2):
             rot_mat = rot2
@@ -112,17 +117,10 @@ def getTransRot(pts1, pts2):
 
     return trans, rot_mat
 
-#Calculating the relative scale - visual speedometry 
-def getDepth(frame, roadFeatureList, FASTDetector):
+#Captures features on the road
+def getRoadFeatures(frame, roadFeatureList):
     frame_center = (int(frame.shape[0]/2), int(frame.shape[1]/2))
-    #mask = frame[100:(frame.shape[0]-100), (frame_center[1]+50):frame.shape[1]-100, :]
-    offset = (100, frame_center[1]+50)
-
     if roadFeatureList.len < 4:
-        #FASTDetector.setThreshold(30)
-        #kp = FASTDetector.detect(mask, None)
-
-        #points = cv2.KeyPoint_convert(kp)
         roadPoints = []
         for i in range(0,30):
             x = frame_center[0] + 400 * (np.random.random() - 1/2) + 100
@@ -132,14 +130,13 @@ def getDepth(frame, roadFeatureList, FASTDetector):
         for p in roadPoints: 
             roadFeatureList.pushToList(ft.Feature(frame, p, 25, tracker="KCF", maxLife=30), 1)
 
+#Calculating the relative speed - visual speedometry 
 def getRelSpeed(roadFeatureList, Cx, Cy, nframes):
     speeds = []
     for roadPoint in roadFeatureList.list:
+        #If the feature doesn't have enough history states, skip
         if len(roadPoint.poshist) < nframes:
             continue
-        #radialDist1 = np.sqrt((Cx - roadPoint.pos[0])**2 + (Cy - roadPoint.pos[1])**2)
-        #radialDist2 = np.sqrt((Cx - roadPoint.getPrevPos(nframes)[0])**2 + (Cy - roadPoint.getPrevPos(nframes)[1])**2)
-
         # calculate transformed velocity
         depth1 = Cy / abs(Cy - roadPoint.pos[1])
         depth2 = Cy / abs(Cy - roadPoint.getPrevPos(nframes)[1])
@@ -147,7 +144,7 @@ def getRelSpeed(roadFeatureList, Cx, Cy, nframes):
     if len(speeds) == 0:
         return None
     else:
-        return np.amax(speeds) * 5
+        return np.amax(speeds)
 
 
 #Reading the Camera Matrix from the csv file
@@ -167,8 +164,8 @@ def ReadCameraMat(fileName):
 
 #Calibration parameters for algorithm
 STEPSIZE = 4
-FPS_MULT = 1
-SCALE = 0.75
+FPS_MULT = 1 #For very high FPS videos
+SCALE = 3
 FRAME_SIZE = (800,600)
 CMAT = ReadCameraMat(CMAT_GOPRO)
 
@@ -182,6 +179,7 @@ if __name__ == '__main__':
     featureList = ft.FeatureList([]) #List of actively Tracked Features
     roadFeatureList = ft.FeatureList([])
 
+    # Initializations
     print(CMAT)
     kp = []
     update_flag = True
@@ -199,14 +197,9 @@ if __name__ == '__main__':
     y_cord = []
     x_cord1 = []
     y_cord1 = []
-    RELATIVE_SCALE = []
     increment_MA = 0
     increment_list = []
-    y_transformed_prev = 0
-    x_transformed_prev = 0
-    x_scale = []
-    y_scale = []
-    speedFactor = 1
+    speedFactor = 1     # visual speedometry speed
     speedFactors = [1.0]
     count = 0
     distance = 0
@@ -215,25 +208,23 @@ if __name__ == '__main__':
     cv2.namedWindow('Trajectory', cv2.WINDOW_AUTOSIZE)
 
     if VIDEO_NAME == 'GH011027':
-        total_frames = 1807 #For GH011027.mp4
-        total_datapts = 1071
+        TOTAL_FRAMES = 1807 #For GH011027.mp4
+        SPEED_DATA_PTS = 1071
     elif VIDEO_NAME == 'GH011028':
-        total_frames = 3460 #For GH011028.mp4
-        total_datapts = 2032
+        TOTAL_FRAMES = 3460 #For GH011028.mp4
+        SPEED_DATA_PTS = 2032
     elif VIDEO_NAME == 'GH011029':
-        total_frames = 2073 #For GH011028.mp4
-        total_datapts = 1240
+        TOTAL_FRAMES = 2073 #For GH011028.mp4
+        SPEED_DATA_PTS = 1240
     else:
         print('Check Video Name for Speed file')
-    increment = 1
-    #increment = np.sum(speed)/(len(speed)*FPS)
-    print('Increment: ', increment)
 
+
+    increment = 1
     num_elements = 1
-    Pushing = False
-    frames_since_last_push = 0
     start_time = time.time()
     
+    ###################################### MAIN LOOP ##########################################
     while True:
         #lastframe = frame
         for i in range(0, FPS_MULT):
@@ -244,25 +235,22 @@ if __name__ == '__main__':
         frame = cv2.resize(frame, FRAME_SIZE)
         Cx = int(frame.shape[0]/2)
         Cy = int(frame.shape[1]/2)
-        j = int(np.floor(total_datapts*frame_counter/(total_frames)))
+        j = int(np.floor(SPEED_DATA_PTS*frame_counter/(TOTAL_FRAMES)))
         increment = speed[j]/FPS
         increment_list.append(increment)
         increment_MA = np.sum(increment_list)/j
-        Pushing = refillFeatures(frame, featureList, fast, 40)  
-        
-        
-        getDepth(frame, roadFeatureList, fast)
+
+        refillFeatures(frame, featureList, fast, 40)  
+        getRoadFeatures(frame, roadFeatureList)
+
         if(roadFeatureList.len > 0):
             roadFeatureList.updatePopList(frame)
-        
-        if Pushing: 
-            frames_since_last_push = 0
         
         if(roadFeatureList.len > 0):
             relSpeed = getRelSpeed(roadFeatureList, Cx, Cy, 4)
             if (relSpeed is not None):
                 speedFactors.append(speedFactor)
-                if (abs(relSpeed - speedFactors[-2]) < 4 ):
+                if (abs(relSpeed - speedFactors[-2]) < 5 ):
                     speedFactor = relSpeed
             
                 
@@ -277,7 +265,7 @@ if __name__ == '__main__':
                 p1 = (bbox[0], bbox[1])
                 p2 = (bbox[2] + bbox[0] , bbox[3] + bbox[1])
                 
-                #Draw the bounding box
+                #Draw the visual markers
                 if f.isActive:
                     #cv2.rectangle(frame, p1, p2, (0,0,255), 2,1)
                     cv2.circle(frame, tuple(f.getPosI()), 7, (255,0,255), -1)
@@ -287,10 +275,10 @@ if __name__ == '__main__':
             
             # update every step frames
             if frame_counter % (STEPSIZE) == 0:
-                #print("Updating...")
                 update_flag = True
             
             if update_flag:
+                #Grab current positions and nth history positions
                 prev_points = []
                 curr_points = []
                 for f in featureList.getActiveFeatures(STEPSIZE):
@@ -303,6 +291,7 @@ if __name__ == '__main__':
 
                 update_flag = False # clear the feature check flag
 
+                # normalizing using camera matrix
                 prev_pts_norm = cv2.undistortPoints(np.expand_dims(prev_points, axis=1), cameraMatrix=CMAT, distCoeffs=None)
                 curr_pts_norm = cv2.undistortPoints(np.expand_dims(curr_points, axis=1), cameraMatrix=CMAT, distCoeffs=None)
                                 
@@ -311,39 +300,37 @@ if __name__ == '__main__':
                 # rotate current camera
                 camera_tf = rot_mat@camera_tf
                 camera_tf = np.multiply(camera_tf, 1/np.linalg.norm(camera_tf@np.array([1,0,0]), 2)) # normalize
-                trans_cam = (camera_tf@trans)*increment_MA*STEPSIZE*FPS_MULT*1
-                trans_cam1 = (camera_tf@trans)*speedFactor*STEPSIZE*FPS_MULT*0.20
-                print(speedFactor)
-                #print('factor: ', factor, ' factor MA: ', factor_MA, ' increment: ', increment, ' increment MA: ', increment_MA)
+                trans_cam = (camera_tf@trans)*increment*STEPSIZE*FPS_MULT
+                trans_cam1 = (camera_tf@trans)*speedFactor*STEPSIZE*FPS_MULT
+
                 # transform camera location
                 trans_f = np.add(trans_f, trans_cam[:,0])
                 trans_f1 = np.add(trans_f1, trans_cam1[:,0])
-                diff = trans_f - trans_f_prev
 
+                # data logging code
                 x = int(trans_f[0]*SCALE) + 600
-                y = int(trans_f[2]*SCALE) + 400  #z coordinate is the one that is changing during the video
+                y = int(trans_f[2]*SCALE) + 400
                 x1 = int(trans_f1[0]*SCALE) + 600
                 y1 = int(trans_f1[2]*SCALE) + 400
                 x_cord.append(x)
                 y_cord.append(y)
                 x_cord1.append(x1)
                 y_cord1.append(y1)
+
+                # plotting code
                 #cv2.circle(trajectory_map, (x,y), 1, (255,0,255), 2)
                 cv2.circle(trajectory_map, (x1,y1), 1, (255,255,255), 2)
                 
+                # labelling code
                 velocity = speed[j]*3600.0/1000.0 #km/h
                 distance = distance + increment*(frame_counter - prev_frame_counter)
                 prev_frame_counter = frame_counter
-                #text = 'Cooridinates: x: {} y: {} Speed: {} km/h Distance Travelled: {:.2f} m'.format(x-400, y-400, int(velocity), distance)
                 text = 'Cooridinates: x: {} y: {} '.format(x-600, y-400)
                 trajectory_map[0:60, 0:800] = 0 #Clear the text on the screen
                 
                 cv2.putText(trajectory_map, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, )
-                trans_f_prev = trans_f
-            
-        #print('Frame #: {}  trans_vector: x: {:.4f} y: {:.4f} z: {:.4f} FAST Threshold: {} # Active Features {} Feature List Length {} Pushing {}'.format(
-        #       frame_counter, float(trans[0]), float(trans[1]), float(trans[2]), fast.getThreshold(), len(curr_points), featureList.len, Pushing ))
-        Pushing = False
+        
+        # window updating code
         cv2.circle(frame, (int(frame.shape[1]/2), int(frame.shape[0]/2)),7, (255,0,255), -1)
         cv2.imshow('frame', frame) #Display Frame on window  
         cv2.imshow('Trajectory', trajectory_map) 
@@ -355,10 +342,9 @@ if __name__ == '__main__':
             cv2.waitKey(-1) 
 
         count += 1
-        frames_since_last_push += 1
     
 duration = time.time() - start_time
-coords = list(zip(x_cord,y_cord,x_cord1,y_cord1,RELATIVE_SCALE, speedFactors, increment_list))
+coords = list(zip(x_cord,y_cord,x_cord1,y_cord1, speedFactors, increment_list))
 df = pd.DataFrame(coords, columns = ['x', 'y', 'x1', 'y1','Relative Scale', 'increment list'])
 df.to_csv('Factor and SCALE_coordinates7'+ VIDEO_NAME + '.csv', index=True)
 
