@@ -165,7 +165,7 @@ def ReadCameraMat(fileName):
 #Calibration parameters for algorithm
 STEPSIZE = 4
 FPS_MULT = 1 #For very high FPS videos
-SCALE = 3
+SCALE = 1
 FRAME_SIZE = (800,600)
 CMAT = ReadCameraMat(CMAT_GOPRO)
 
